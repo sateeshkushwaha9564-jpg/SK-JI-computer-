@@ -11,12 +11,12 @@
 body{
 margin:0;
 font-family:Arial;
-background:linear-gradient(135deg,#1d2671,#c33764);
+background:linear-gradient(135deg,#141e30,#243b55);
 color:white;
 text-align:center;
 }
 header{
-background:#ff9800;
+background:#ff6f00;
 padding:15px;
 font-size:20px;
 font-weight:bold;
@@ -45,18 +45,19 @@ color:white;
 cursor:pointer;
 }
 button:hover{background:#0d47a1;}
-.hidden{display:none;}
 .card{
 background:#f5f5f5;
 padding:10px;
 margin:8px;
 border-radius:6px;
 display:inline-block;
-width:200px;
+width:180px;
 }
+.hidden{display:none;}
 .present{color:green;font-weight:bold;}
-.absent{color:red;font-weight:bold;}
 .auto_out{color:orange;}
+.manual_out{color:blue;}
+.absent{color:red;font-weight:bold;}
 </style>
 </head>
 
@@ -64,14 +65,13 @@ width:200px;
 
 <header>
 SK JI Computer Coaching Classes and Institute<br>
-Smart Attendance System
+Professional Attendance System
 </header>
 
 <div class="container">
 
-<h3>User Panel</h3>
-
-<input type="text" id="name" placeholder="Enter Name">
+<div id="userPanel">
+<input type="text" id="name" placeholder="Enter Full Name">
 <select id="role">
 <option value="student">Student</option>
 <option value="staff">Staff</option>
@@ -79,31 +79,46 @@ Smart Attendance System
 
 <button onclick="markIn()">IN</button>
 <button onclick="markOut()">OUT</button>
-<button onclick="showMyReport()">My Report</button>
+<button onclick="applyLeave()">Leave</button>
 
 <hr>
 <button onclick="adminLogin()">Admin Login</button>
-
-<div id="myReport"></div>
+</div>
 
 <div id="adminPanel" class="hidden">
-<h3>Admin Panel</h3>
 
-<h4>Add Staff (One Time)</h4>
-<input type="text" id="staffName" placeholder="Staff Name">
-<button onclick="addStaff()">Add Staff</button>
+<h3>Admin Dashboard</h3>
 
-<h4>Staff List</h4>
-<div id="staffList"></div>
+<div>
+<div class="card">Students Present<br><span id="studentCount">0</span></div>
+<div class="card">Staff Present<br><span id="staffCount">0</span></div>
+<div class="card">Today Absent<br><span id="absentCount">0</span></div>
+<div class="card">Monthly Records<br><span id="monthlyCount">0</span></div>
+</div>
 
-<h4>Set Staff Fixed Hours</h4>
-<input type="number" id="staffHours" placeholder="Hours">
-<button onclick="saveHours()">Save</button>
+<br>
 
-<h4>Monthly Report</h4>
-<div id="monthlyReport"></div>
+<input type="number" id="fixedHours" placeholder="Staff Fixed Hours">
+<button onclick="setHours()">Update Hours</button>
+
+<br><br>
+
+<input type="text" id="search" placeholder="Search Name">
+<select id="filterRole">
+<option value="all">All</option>
+<option value="student">Student</option>
+<option value="staff">Staff</option>
+</select>
+<button onclick="exportCSV()">Export CSV</button>
+
+<h4>Attendance Records</h4>
+<div id="records"></div>
+
+<h4>Pending Leave</h4>
+<div id="leaveList"></div>
 
 <button onclick="logout()">Logout</button>
+
 </div>
 
 </div>
@@ -117,73 +132,33 @@ projectId:"YOUR_PROJECT_ID",
 firebase.initializeApp(firebaseConfig);
 const db=firebase.firestore();
 
-let fixedHours=6;
+let staffHours=6;
 
-function saveHours(){
-fixedHours=document.getElementById("staffHours").value;
-alert("Updated");
+function setHours(){
+staffHours=document.getElementById("fixedHours").value;
+alert("Staff Hours Updated");
 }
-
-function addStaff(){
-let name=document.getElementById("staffName").value.trim();
-if(!name) return;
-
-db.collection("staff").doc(name).get().then(doc=>{
-if(doc.exists){
-alert("Staff already exists");
-}else{
-db.collection("staff").doc(name).set({
-name:name,
-created:new Date()
-});
-alert("Staff Added");
-}
-});
-}
-
-db.collection("staff").onSnapshot(snapshot=>{
-let html="";
-snapshot.forEach(doc=>{
-html+=doc.data().name+"<br>";
-});
-document.getElementById("staffList").innerHTML=html;
-});
 
 function markIn(){
-let name=document.getElementById("name").value.trim();
-let role=document.getElementById("role").value;
-if(!name) return;
+const name=document.getElementById("name").value.trim();
+const role=document.getElementById("role").value;
+if(!name) return alert("Enter Name");
 
-let now=new Date();
-let hours= role==="student"?1:fixedHours;
+const now=new Date();
+let hours= role==="student"?1:staffHours;
 let outTime=new Date(now.getTime()+hours*3600000);
 
-if(role==="staff"){
-db.collection("staff").doc(name).get().then(doc=>{
-if(!doc.exists){
-alert("Staff not registered");
-return;
-}
-saveAttendance(name,role,now,outTime);
-});
-}else{
-saveAttendance(name,role,now,outTime);
-}
-}
-
-function saveAttendance(name,role,now,outTime){
 db.collection("attendance").add({
+id:Date.now(),
 name,role,
-date:now.toDateString(),
 in_time:now,
 out_time:outTime,
 status:"present"
 });
-alert("IN Done");
 }
 
 function markOut(){
-let name=document.getElementById("name").value.trim();
+const name=document.getElementById("name").value.trim();
 db.collection("attendance")
 .where("name","==",name)
 .where("status","==","present")
@@ -191,43 +166,123 @@ db.collection("attendance")
 .then(s=>s.forEach(doc=>doc.ref.update({status:"manual_out"})));
 }
 
-function showMyReport(){
-let name=document.getElementById("name").value.trim();
-let present=0,absent=0;
-db.collection("attendance")
-.where("name","==",name)
-.get()
-.then(snapshot=>{
-snapshot.forEach(doc=>{
-if(doc.data().status==="present" || doc.data().status==="manual_out" || doc.data().status==="auto_out")
-present++;
+function applyLeave(){
+const name=document.getElementById("name").value.trim();
+const role=document.getElementById("role").value;
+const today=new Date();
+let required= role==="student"?1:2;
+let selected=prompt("Enter Leave Date (YYYY-MM-DD)");
+let leaveDate=new Date(selected);
+
+if((leaveDate-today)/(1000*60*60*24) < required){
+alert("Leave rule not satisfied");
+return;
+}
+
+db.collection("leave").add({
+name,role,date:leaveDate,status:"pending"
 });
-});
-document.getElementById("myReport").innerHTML=
-"<div class='card'>Present Days: "+present+"</div>";
 }
 
 function adminLogin(){
 let pass=prompt("Password");
 if(pass==="SKJI@2026"){
+document.getElementById("userPanel").classList.add("hidden");
 document.getElementById("adminPanel").classList.remove("hidden");
 }
 }
 
 function logout(){
 document.getElementById("adminPanel").classList.add("hidden");
+document.getElementById("userPanel").classList.remove("hidden");
 }
 
 db.collection("attendance").onSnapshot(snapshot=>{
-let monthly=0;
+let student=0,staff=0,monthly=0;
+let today=new Date().toDateString();
+let presentNames=[];
+let html="";
 snapshot.forEach(doc=>{
 let d=doc.data();
-if(new Date(d.in_time.toDate()).getMonth()===new Date().getMonth())
-monthly++;
+let inDate=d.in_time.toDate();
+let outTime=d.out_time.toDate();
+let now=new Date();
+
+if(now>outTime && d.status==="present"){
+doc.ref.update({status:"auto_out"});
+}
+
+if(d.status==="present"){
+if(d.role==="student") student++;
+if(d.role==="staff") staff++;
+presentNames.push(d.name);
+}
+
+if(inDate.getMonth()===new Date().getMonth()) monthly++;
+
+html+=`${d.name} - ${d.role} - <span class="${d.status}">${d.status}</span>
+<button onclick="del('${doc.id}')">Delete</button><br>`;
 });
-document.getElementById("monthlyReport").innerHTML=
-"<div class='card'>Total Monthly Entries: "+monthly+"</div>";
+
+document.getElementById("studentCount").innerText=student;
+document.getElementById("staffCount").innerText=staff;
+document.getElementById("monthlyCount").innerText=monthly;
+document.getElementById("records").innerHTML=html;
+
+generateAbsent(presentNames);
 });
+
+function generateAbsent(presentNames){
+let expected=["Student1","Student2","Staff1"];
+let absent=0,html="";
+expected.forEach(n=>{
+if(!presentNames.includes(n)){
+absent++;
+html+=n+"<br>";
+}
+});
+document.getElementById("absentCount").innerText=absent;
+}
+
+function del(id){
+db.collection("attendance").doc(id).delete();
+}
+
+db.collection("leave").where("status","==","pending")
+.onSnapshot(snapshot=>{
+let html="";
+snapshot.forEach(doc=>{
+let d=doc.data();
+html+=`${d.name} - ${d.role}
+<button onclick="approve('${doc.id}')">Approve</button>
+<button onclick="reject('${doc.id}')">Reject</button><br>`;
+});
+document.getElementById("leaveList").innerHTML=html;
+});
+
+function approve(id){
+db.collection("leave").doc(id).update({status:"approved"});
+}
+
+function reject(id){
+db.collection("leave").doc(id).update({status:"rejected"});
+}
+
+function exportCSV(){
+db.collection("attendance").get().then(snapshot=>{
+let csv="Name,Role,Status\n";
+snapshot.forEach(doc=>{
+let d=doc.data();
+csv+=`${d.name},${d.role},${d.status}\n`;
+});
+let blob=new Blob([csv],{type:"text/csv"});
+let url=URL.createObjectURL(blob);
+let a=document.createElement("a");
+a.href=url;
+a.download="attendance.csv";
+a.click();
+});
+}
 </script>
 
 </body>
